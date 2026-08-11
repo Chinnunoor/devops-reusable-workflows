@@ -42,40 +42,40 @@ jobs:
       - name: Maven Build
         run: mvn -B clean package
 
-      # 4. Docker Buildx
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v4
+      # # 4. Docker Buildx
+      # - name: Setup Docker Buildx
+      #   uses: docker/setup-buildx-action@v4
 
-      # 5. Login to Docker Hub
-      - name: Login to Docker Hub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ inputs.dockerhub_username }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # # 5. Login to Docker Hub
+      # - name: Login to Docker Hub
+      #   uses: docker/login-action@v4
+      #   with:
+      #     username: ${{ inputs.dockerhub_username }}
+      #     password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 6. Build and push every service
-      - name: Build and Push Docker Images
-        shell: bash
-        run: |
-          echo '${{ inputs.services }}' | jq -c '.[]' | while read service; do
+      # # 6. Build and push every service
+      # - name: Build and Push Docker Images
+      #   shell: bash
+      #   run: |
+      #     echo '${{ inputs.services }}' | jq -c '.[]' | while read service; do
 
-            NAME=$(echo "$service" | jq -r '.name')
-            CONTEXT=$(echo "$service" | jq -r '.context')
+      #       NAME=$(echo "$service" | jq -r '.name')
+      #       CONTEXT=$(echo "$service" | jq -r '.context')
 
-            IMAGE="${{ inputs.dockerhub_username }}/${NAME}"
+      #       IMAGE="${{ inputs.dockerhub_username }}/${NAME}"
 
-            echo "========================================="
-            echo "Building: $NAME"
-            echo "Context:  $CONTEXT"
-            echo "Image:    $IMAGE"
-            echo "========================================="
+      #       echo "========================================="
+      #       echo "Building: $NAME"
+      #       echo "Context:  $CONTEXT"
+      #       echo "Image:    $IMAGE"
+      #       echo "========================================="
 
-            docker build \
-              -t "$IMAGE:latest" \
-              -t "$IMAGE:${{ github.sha }}" \
-              "$CONTEXT"
+      #       docker build \
+      #         -t "$IMAGE:latest" \
+      #         -t "$IMAGE:${{ github.sha }}" \
+      #         "$CONTEXT"
 
-            docker push "$IMAGE:latest"
-            docker push "$IMAGE:${{ github.sha }}"
+      #       docker push "$IMAGE:latest"
+      #       docker push "$IMAGE:${{ github.sha }}"
 
           done
