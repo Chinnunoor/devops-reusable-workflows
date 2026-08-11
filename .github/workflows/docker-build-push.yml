@@ -99,92 +99,94 @@ jobs:
   # JOB 2 - DOCKER BUILD AND PUSH
   # =========================================================
   docker:
-    name: Docker Build and Push
-
-    # VERY IMPORTANT
-    # Job 2 waits for Job 1
+    name: Docker - ${{ matrix.service.name }}
+  
     needs: build
-
+  
     runs-on: ubuntu-latest
-
+  
+    strategy:
+      fail-fast: false
+  
+      matrix:
+        service: ${{ fromJSON(inputs.services) }}
+  
     steps:
-
+  
       # -----------------------------------------------------
-      # Checkout repository again
+      # Checkout repository
       # -----------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v7
-
-
+  
+  
       # -----------------------------------------------------
-      # Download JARs created in Job 1
+      # Download JARs created by Maven job
       # -----------------------------------------------------
       - name: Download Maven artifacts
         uses: actions/download-artifact@v8
         with:
           name: maven-build-${{ github.sha }}
           path: artifact-bundle
-
-
+  
+  
       # -----------------------------------------------------
-      # Put JARs back into original target directories
+      # Restore JARs to original target directories
       # -----------------------------------------------------
       - name: Restore Maven artifacts
         shell: bash
         run: |
           cp -R artifact-bundle/. .
-
-
+  
+  
       # -----------------------------------------------------
-      # Verify downloaded artifacts
+      # Verify JAR for this service
       # -----------------------------------------------------
-      - name: Verify Maven artifacts
+      - name: Verify Maven artifact
         shell: bash
         run: |
-          echo "Downloaded JAR files:"
-          find . -type f -path '*/target/*.jar' -print
-
-
+          echo "Service: ${{ matrix.service.name }}"
+          echo "Context: ${{ matrix.service.context }}"
+  
+          find "${{ matrix.service.context }}" \
+            -type f \
+            -path '*/target/*.jar' \
+            -print
+  
+  
       # -----------------------------------------------------
       # Setup Docker Buildx
       # -----------------------------------------------------
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
-
-
+  
+  
       # -----------------------------------------------------
-      # Docker Hub Login
+      # Login to Docker Hub
       # -----------------------------------------------------
       - name: Login to Docker Hub
         uses: docker/login-action@v4
         with:
           username: ${{ inputs.dockerhub_username }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-
+  
+  
       # -----------------------------------------------------
-      # Build and push all services
+      # Build and Push Docker Image
       # -----------------------------------------------------
-      - name: Build and Push Docker Images
-        shell: bash
-        run: |
-          echo '${{ inputs.services }}' | jq -c '.[]' | while read -r service
-          do
-
-            name=$(echo "$service" | jq -r '.name')
-            context=$(echo "$service" | jq -r '.context')
-
-            echo "========================================="
-            echo "Building service: $name"
-            echo "Context: $context"
-            echo "========================================="
-
-            docker buildx build \
-              --platform linux/amd64 \
-              --file "$context/Dockerfile" \
-              --tag "${{ inputs.dockerhub_username }}/$name:latest" \
-              --tag "${{ inputs.dockerhub_username }}/$name:${{ github.sha }}" \
-              --push \
-              "$context"
-
-          done
+      - name: Build and Push ${{ matrix.service.name }}
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.context }}/Dockerfile
+  
+          platforms: linux/amd64
+  
+          push: true
+  
+          tags: |
+            ${{ inputs.dockerhub_username }}/${{ matrix.service.name }}:latest
+            ${{ inputs.dockerhub_username }}/${{ matrix.service.name }}:${{ github.sha }}
+  
+          cache-from: type=gha,scope=${{ matrix.service.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
