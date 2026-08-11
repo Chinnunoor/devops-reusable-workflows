@@ -3,10 +3,10 @@ name: Reusable Maven Build and Docker Push
 on:
   workflow_call:
     inputs:
-      services:
-        description: "JSON list of services"
-        required: true
-        type: string
+      # services:
+      #   description: "JSON list of services"
+      #   required: true
+      #   type: string
 
       dockerhub_username:
         description: "Docker Hub username"
@@ -19,6 +19,135 @@ on:
 
 
 jobs:
+  discover:
+    name: Discover Docker Services
+    runs-on: ubuntu-latest
+
+    outputs:
+      services: ${{ steps.discovery.outputs.services }}
+
+    steps:
+
+      # -----------------------------------------------------
+      # Checkout repository
+      # -----------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+
+      # -----------------------------------------------------
+      # Discover valid Docker services
+      # -----------------------------------------------------
+      - name: Discover Dockerfiles
+        id: discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Searching for Docker services..."
+
+          services='[]'
+
+          while IFS= read -r -d '' dockerfile
+          do
+            # Directory containing Dockerfile
+            context="$(dirname "$dockerfile")"
+
+            # Remove leading ./
+            context="${context#./}"
+
+            pom="$context/pom.xml"
+
+            echo "------------------------------------------------"
+            echo "Checking: $context"
+
+            # ------------------------------------------------
+            # Condition 1: pom.xml must exist beside Dockerfile
+            # ------------------------------------------------
+            if [[ ! -f "$pom" ]]; then
+              echo "Skipping: pom.xml not found"
+              continue
+            fi
+
+            # ------------------------------------------------
+            # Condition 2: Dockerfile must not be empty
+            # ------------------------------------------------
+            if [[ ! -s "$dockerfile" ]]; then
+              echo "Skipping: Dockerfile is empty"
+              continue
+            fi
+
+            # ------------------------------------------------
+            # Condition 3: Dockerfile must contain FROM
+            # ------------------------------------------------
+            if ! grep -Eiq '^[[:space:]]*FROM[[:space:]]+' "$dockerfile"; then
+              echo "Skipping: Dockerfile does not contain FROM"
+              continue
+            fi
+
+            # ------------------------------------------------
+            # Condition 4: Dockerfile should contain useful
+            # Docker instructions
+            # ------------------------------------------------
+            if ! grep -Eiq \
+              '^[[:space:]]*(RUN|CMD|ENTRYPOINT|COPY|ADD)[[:space:]]+' \
+              "$dockerfile"; then
+
+              echo "Skipping: Dockerfile does not contain build/runtime commands"
+              continue
+            fi
+
+
+            # ------------------------------------------------
+            # Service name = directory name
+            # ------------------------------------------------
+            name="$(basename "$context")"
+
+            echo "Discovered service:"
+            echo "  name    = $name"
+            echo "  context = $context"
+
+
+            # ------------------------------------------------
+            # Add service to JSON array
+            # ------------------------------------------------
+            services="$(
+              jq -c \
+                --arg name "$name" \
+                --arg context "$context" \
+                '. + [{
+                  name: $name,
+                  context: $context
+                }]' \
+                <<< "$services"
+            )"
+
+          done < <(find . -type f -name 'Dockerfile' -print0)
+
+
+          # --------------------------------------------------
+          # Fail if no services were discovered
+          # --------------------------------------------------
+          if [[ "$(jq 'length' <<< "$services")" -eq 0 ]]; then
+            echo "No valid Docker services discovered."
+            exit 1
+          fi
+
+
+          # --------------------------------------------------
+          # Print pretty JSON for logs
+          # --------------------------------------------------
+          echo
+          echo "Discovered services:"
+          jq '.' <<< "$services"
+
+
+          # --------------------------------------------------
+          # GitHub Actions output must be compact JSON
+          # --------------------------------------------------
+          services="$(jq -c '.' <<< "$services")"
+
+          echo "services=$services" >> "$GITHUB_OUTPUT"
 
   # =========================================================
   # JOB 1 - MAVEN BUILD
@@ -26,7 +155,7 @@ jobs:
   build:
     name: Build Maven Project
     runs-on: ubuntu-latest
-
+    needs: discover
     steps:
 
       # -----------------------------------------------------
@@ -62,7 +191,7 @@ jobs:
         run: |
           mkdir -p artifact-bundle
 
-          echo '${{ inputs.services }}' | jq -c '.[]' | while read -r service
+          echo '${{ needs.discover.outputs.services }}' | jq -c '.[]' | while read -r service
           do
             context=$(echo "$service" | jq -r '.context')
 
@@ -101,7 +230,9 @@ jobs:
   docker:
     name: Docker - ${{ matrix.service.name }}
   
-    needs: build
+    needs: 
+     - build
+     - discover
   
     runs-on: ubuntu-latest
   
@@ -109,7 +240,7 @@ jobs:
       fail-fast: false
   
       matrix:
-        service: ${{ fromJSON(inputs.services) }}
+        service: ${{ fromJSON(needs.discover.outputs.services) }}
   
     steps:
   
