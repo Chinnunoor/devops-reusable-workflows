@@ -42,6 +42,14 @@ jobs:
       - name: Maven Build
         run: mvn -B clean package
 
+      # 4. Upload Maven JARs to GitHub Actions artifact storage
+      - name: Upload Maven artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: maven-jars
+          path: |
+            **/target/*.jar
+
       # # 4. Docker Buildx
       # - name: Setup Docker Buildx
       #   uses: docker/setup-buildx-action@v4
